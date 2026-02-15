@@ -1530,6 +1530,19 @@ class AllegroScraper(BaseScraper):
         cancel_event: threading.Event,
     ) -> list[ScrapeResult]:
         results: list[ScrapeResult] = []
+
+        if cancel_event.is_set():
+            return results
+
+        # Allegro has strong anti-bot - prioritize DrissionPage (real browser)
+        if DRISSION_AVAILABLE:
+            print(f"[{self.PORTAL_NAME}] Using DrissionPage (CDP browser) for reliable scraping...")
+            drission_results = self._search_with_drission(keywords, price_min, price_max)
+            if drission_results:
+                return drission_results
+            print(f"[{self.PORTAL_NAME}] DrissionPage returned 0 results, trying requests fallback...")
+
+        # Fallback to requests-based scraping
         query: str = "+".join(kw.strip() for kw in keywords)
         url: str = f"https://allegro.pl/listing?string={query}"
 
@@ -1538,68 +1551,77 @@ class AllegroScraper(BaseScraper):
         if price_max is not None:
             url += f"&price_to={price_max:.0f}"
 
-        if cancel_event.is_set():
-            return results
-
-        # Try requests-based scraping first
         soup: Optional[BeautifulSoup] = None
         try:
             soup = self._fetch_with_session(url)
         except requests.RequestException as e:
             print(f"[{self.PORTAL_NAME}] Requests failed: {e}")
-            # Fallback to DrissionPage
-            if DRISSION_AVAILABLE:
-                return self._search_with_drission(keywords, price_min, price_max)
-            raise
-
-        if soup is None:
-            # Fallback to DrissionPage if requests returned nothing
-            if DRISSION_AVAILABLE:
-                return self._search_with_drission(keywords, price_min, price_max)
             return results
 
-        # Allegro listing articles
-        articles = soup.select("article[data-role='offer']")
-        if not articles:
-            articles = soup.select("div[data-box-name='items-v3'] article")
-        if not articles:
-            articles = soup.select("div.opbox-listing article")
+        if soup is None:
+            return results
 
-        for article in articles:
+        # Updated Allegro selectors (2024/2025)
+        # Primary: li elements with specific class
+        items = soup.select("li.mb54_5r")
+        if not items:
+            # Fallback: article elements
+            items = soup.select("article[data-role='offer']")
+        if not items:
+            items = soup.select("div[data-box-name='items-v3'] article")
+        if not items:
+            items = soup.select("div.opbox-listing article")
+        if not items:
+            # Try any li in listing container
+            items = soup.select("div[data-box-name='items'] li")
+
+        print(f"[{self.PORTAL_NAME}] Found {len(items)} items with requests")
+
+        for item in items:
             if cancel_event.is_set():
                 break
 
-            # Title — look for the offer link with /oferta/ in href
-            title_el = article.select_one("a[href*='/oferta/']")
-            if title_el is None:
-                title_el = article.select_one("h2 a")
+            # Title - multiple fallback strategies
+            title: str = ""
+            title_el = item.select_one("h2.mgn2_14")
             if not title_el:
-                continue
-            title: str = title_el.get_text(strip=True)
+                title_el = item.select_one("h2")
+            if not title_el:
+                title_el = item.select_one("a.mgn2_14")
+            if not title_el:
+                title_el = item.select_one("a[href*='/oferta/']")
+            if title_el:
+                title = title_el.get_text(strip=True)
             if not title:
-                # Title might be in alt of image or a nested span
-                alt_el = article.select_one("img[alt]")
-                if alt_el:
-                    title = alt_el.get("alt", "")
+                img_el = item.select_one("img[alt]")
+                if img_el:
+                    title = img_el.get("alt", "")
             if not title:
                 continue
 
-            link: str = title_el.get("href", "")
-            if link and not link.startswith("http"):
-                link = "https://allegro.pl" + link
-            # Skip tracking/click redirect URLs
-            if "/events/clicks" in link:
-                real_link = article.select_one("a[href*='/oferta/']")
-                if real_link:
-                    link = real_link.get("href", link)
-                    if link and not link.startswith("http"):
-                        link = "https://allegro.pl" + link
+            # Link
+            link_el = item.select_one("a[href*='/oferta/']")
+            if not link_el:
+                link_el = item.select_one("a[href]")
+            link: str = ""
+            if link_el:
+                link = link_el.get("href", "")
+                if link and not link.startswith("http"):
+                    link = "https://allegro.pl" + link
+            if not link or "/events/clicks" in link:
+                continue
 
-            # Price
-            price_el = article.select_one(
-                "span[class*='price'], span[aria-label*='cena']"
-            )
-            price_text: str = price_el.get_text(strip=True) if price_el else ""
+            # Price - multiple fallback strategies
+            price_text: str = ""
+            price_el = item.select_one("span.mli8_k4")
+            if not price_el:
+                price_el = item.select_one("span.mgn2_27")
+            if not price_el:
+                price_el = item.select_one("span[aria-label*='cena']")
+            if not price_el:
+                price_el = item.select_one("span[class*='price']")
+            if price_el:
+                price_text = price_el.get_text(strip=True)
             price_val: Optional[float] = parse_price(price_text)
 
             results.append(
@@ -2071,7 +2093,7 @@ class ResultCard(ctk.CTkFrame):
         "Vinted": COLORS["vinted_badge"],
     }
 
-    def __init__(self, master: ctk.CTkBaseClass, result: ScrapeResult, **kwargs) -> None:
+    def __init__(self, master: ctk.CTkBaseClass, result: ScrapeResult, index: int = 0, **kwargs) -> None:
         super().__init__(
             master,
             fg_color=COLORS["card_bg"],
@@ -2081,6 +2103,7 @@ class ResultCard(ctk.CTkFrame):
             **kwargs,
         )
         self._result: ScrapeResult = result
+        self._index: int = index
         self._build_ui()
         # Bind mousewheel so scroll propagates to the parent scrollable frame
         self._bind_mousewheel(self)
@@ -2109,7 +2132,17 @@ class ResultCard(ctk.CTkFrame):
             parent = getattr(parent, 'master', None)
 
     def _build_ui(self) -> None:
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(2, weight=1)
+
+        # L.P. (row number)
+        lp_label = ctk.CTkLabel(
+            self,
+            text=f"{self._index}",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color=COLORS["accent"],
+            width=32,
+        )
+        lp_label.grid(row=0, column=0, rowspan=2, padx=(10, 4), pady=12, sticky="n")
 
         # Portal badge
         badge_color: str = self.BADGE_COLORS.get(self._result.portal, COLORS["accent"])
@@ -2123,7 +2156,7 @@ class ResultCard(ctk.CTkFrame):
             width=70,
             height=26,
         )
-        badge.grid(row=0, column=0, rowspan=2, padx=(12, 8), pady=12, sticky="n")
+        badge.grid(row=0, column=1, rowspan=2, padx=(4, 8), pady=12, sticky="n")
 
         # Title
         title_label = ctk.CTkLabel(
@@ -2134,7 +2167,7 @@ class ResultCard(ctk.CTkFrame):
             anchor="w",
             wraplength=500,
         )
-        title_label.grid(row=0, column=1, padx=4, pady=(12, 2), sticky="w")
+        title_label.grid(row=0, column=2, padx=4, pady=(12, 2), sticky="w")
 
         # Info row: matched keywords + price
         keywords_str: str = ", ".join(self._result.matched_keywords) if self._result.matched_keywords else "—"
@@ -2149,7 +2182,7 @@ class ResultCard(ctk.CTkFrame):
             text_color=COLORS["text_secondary"],
             anchor="w",
         )
-        info_label.grid(row=1, column=1, padx=4, pady=(0, 12), sticky="w")
+        info_label.grid(row=1, column=2, padx=4, pady=(0, 12), sticky="w")
 
         # Open button
         open_btn = ctk.CTkButton(
@@ -2163,7 +2196,7 @@ class ResultCard(ctk.CTkFrame):
             corner_radius=8,
             command=lambda: webbrowser.open(self._result.url),
         )
-        open_btn.grid(row=0, column=2, rowspan=2, padx=12, pady=12)
+        open_btn.grid(row=0, column=3, rowspan=2, padx=12, pady=12)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2713,7 +2746,7 @@ class MarketMapApp(ctk.CTk):
         # Store result for AI analysis
         self._all_results.append(result)
 
-        card = ResultCard(self._results_frame, result)
+        card = ResultCard(self._results_frame, result, index=self._result_count + 1)
         card.grid(
             row=len(self._result_cards),
             column=0,
