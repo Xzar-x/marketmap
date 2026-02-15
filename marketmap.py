@@ -7,6 +7,9 @@ Single-file architecture, ready for PyInstaller compilation.
 
 from __future__ import annotations
 
+import json
+import logging
+import math
 import queue
 import random
 import re
@@ -15,12 +18,29 @@ import time
 import webbrowser
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple, List
 
 import customtkinter as ctk
 import requests
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
+
+# DrissionPage for advanced Allegro scraping (CDP-based)
+try:
+    from DrissionPage import ChromiumPage, ChromiumOptions
+    DRISSION_AVAILABLE = True
+except ImportError:
+    DRISSION_AVAILABLE = False
+    ChromiumPage = None
+    ChromiumOptions = None
+
+# Configure logging for DrissionPage scraper
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+drission_logger = logging.getLogger("AllegroDrission")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HUMAN SIMULATION & ANTI-BOT EVASION
@@ -222,6 +242,356 @@ def get_human_simulator() -> HumanSimulator:
     if _human_sim is None:
         _human_sim = HumanSimulator()
     return _human_sim
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DRISSIONPAGE CDP SCRAPER (Advanced Allegro Anti-Bot Evasion)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class DrissionListing:
+    """Represents a single Allegro listing from DrissionPage scraper."""
+    title: str
+    price: Optional[float]
+    price_text: str
+    url: str
+    seller: str = ""
+    is_promoted: bool = False
+
+
+@dataclass
+class DrissionScrapeResult:
+    """Result of a DrissionPage scraping session."""
+    success: bool
+    listings: List[DrissionListing] = field(default_factory=list)
+    error_message: str = ""
+    pages_scraped: int = 0
+
+
+class BezierMouseMover:
+    """Generates human-like mouse movements using cubic Bezier curves."""
+
+    @staticmethod
+    def _bezier_point(
+        t: float,
+        p0: Tuple[float, float],
+        p1: Tuple[float, float],
+        p2: Tuple[float, float],
+        p3: Tuple[float, float],
+    ) -> Tuple[float, float]:
+        """Calculate a point on a cubic Bezier curve at parameter t."""
+        u = 1 - t
+        tt = t * t
+        uu = u * u
+        uuu = uu * u
+        ttt = tt * t
+        x = uuu * p0[0] + 3 * uu * t * p1[0] + 3 * u * tt * p2[0] + ttt * p3[0]
+        y = uuu * p0[1] + 3 * uu * t * p1[1] + 3 * u * tt * p2[1] + ttt * p3[1]
+        return (x, y)
+
+    @staticmethod
+    def _generate_control_points(
+        start: Tuple[float, float],
+        end: Tuple[float, float],
+    ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+        """Generate random control points for a Bezier curve."""
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        distance = math.sqrt(dx * dx + dy * dy)
+        offset_range = max(50, distance * 0.3)
+        cp1_x = start[0] + dx * random.uniform(0.2, 0.4) + random.uniform(-offset_range, offset_range)
+        cp1_y = start[1] + dy * random.uniform(0.2, 0.4) + random.uniform(-offset_range, offset_range)
+        cp2_x = start[0] + dx * random.uniform(0.6, 0.8) + random.uniform(-offset_range, offset_range)
+        cp2_y = start[1] + dy * random.uniform(0.6, 0.8) + random.uniform(-offset_range, offset_range)
+        return ((cp1_x, cp1_y), (cp2_x, cp2_y))
+
+    def generate_path(
+        self,
+        start: Tuple[float, float],
+        end: Tuple[float, float],
+        num_points: int = 50,
+    ) -> List[Tuple[int, int]]:
+        """Generate a list of points along a Bezier curve from start to end."""
+        cp1, cp2 = self._generate_control_points(start, end)
+        points: List[Tuple[int, int]] = []
+        for i in range(num_points + 1):
+            t = i / num_points
+            if 0 < t < 1:
+                t += random.gauss(0, 0.01)
+                t = max(0, min(1, t))
+            point = self._bezier_point(t, start, cp1, cp2, end)
+            points.append((int(point[0]), int(point[1])))
+        return points
+
+
+class DrissionHumanTyper:
+    """Simulates human-like typing with Gaussian delays."""
+    BASE_DELAY_MS: float = 80
+    VARIANCE_MS: float = 30
+    SPACE_DELAY_FACTOR: float = 1.2
+    SHIFT_DELAY_FACTOR: float = 1.5
+    PUNCTUATION_DELAY_FACTOR: float = 1.3
+    PAUSE_PROBABILITY: float = 0.05
+    PAUSE_MIN_MS: float = 200
+    PAUSE_MAX_MS: float = 600
+
+    def get_delay_for_char(self, char: str, prev_char: str = "") -> float:
+        """Calculate delay before typing a character (in seconds)."""
+        delay_ms = random.gauss(self.BASE_DELAY_MS, self.VARIANCE_MS)
+        delay_ms = max(20, delay_ms)
+        if char == " ":
+            delay_ms *= self.SPACE_DELAY_FACTOR
+        elif char.isupper():
+            delay_ms *= self.SHIFT_DELAY_FACTOR
+        elif not char.isalnum():
+            delay_ms *= self.PUNCTUATION_DELAY_FACTOR
+        if random.random() < self.PAUSE_PROBABILITY:
+            delay_ms += random.uniform(self.PAUSE_MIN_MS, self.PAUSE_MAX_MS)
+        return delay_ms / 1000
+
+    def type_text(self, page, element, text: str) -> None:
+        """Type text into an element with human-like delays."""
+        prev_char = ""
+        for char in text:
+            delay = self.get_delay_for_char(char, prev_char)
+            time.sleep(delay)
+            element.input(char, clear=False)
+            prev_char = char
+
+
+class SmartScroller:
+    """Implements human-like scrolling behavior for lazy-loading."""
+    MIN_SCROLL_PX: int = 200
+    MAX_SCROLL_PX: int = 600
+    MIN_PAUSE_SEC: float = 0.3
+    MAX_PAUSE_SEC: float = 1.5
+    READING_PAUSE_PROBABILITY: float = 0.15
+    READING_PAUSE_MIN_SEC: float = 1.5
+    READING_PAUSE_MAX_SEC: float = 4.0
+    SCROLL_BACK_PROBABILITY: float = 0.08
+    SCROLL_BACK_AMOUNT: int = 150
+
+    def scroll_page(self, page, scroll_times: int = 5, wait_for_content: bool = True) -> None:
+        """Scroll the page with human-like behavior."""
+        for i in range(scroll_times):
+            scroll_amount = random.randint(self.MIN_SCROLL_PX, self.MAX_SCROLL_PX)
+            if random.random() < self.SCROLL_BACK_PROBABILITY and i > 0:
+                page.scroll.down(self.SCROLL_BACK_AMOUNT * -1)
+                time.sleep(random.uniform(0.2, 0.5))
+            page.scroll.down(scroll_amount)
+            if wait_for_content:
+                time.sleep(random.uniform(self.MIN_PAUSE_SEC, self.MAX_PAUSE_SEC))
+            if random.random() < self.READING_PAUSE_PROBABILITY:
+                time.sleep(random.uniform(self.READING_PAUSE_MIN_SEC, self.READING_PAUSE_MAX_SEC))
+
+
+class AllegroDrissionScraper:
+    """Allegro.pl scraper using DrissionPage with CDP (Chrome DevTools Protocol)."""
+    ALLEGRO_URL: str = "https://allegro.pl"
+    COOKIE_ACCEPT_SELECTOR: str = "button[data-role='accept-consent']"
+    SEARCH_INPUT_SELECTOR: str = "input[type='search'], input[data-role='search-input'], input[name='string']"
+    SEARCH_BUTTON_SELECTOR: str = "button[type='submit'], button[data-role='search-button']"
+
+    def __init__(self, headless: bool = False) -> None:
+        if not DRISSION_AVAILABLE:
+            raise RuntimeError("DrissionPage is required. Install with: pip install DrissionPage")
+        self._headless = headless
+        self._page = None
+        self._mouse_mover = BezierMouseMover()
+        self._typer = DrissionHumanTyper()
+        self._scroller = SmartScroller()
+        drission_logger.info("AllegroDrissionScraper initialized")
+
+    def _create_browser_options(self):
+        """Create browser options with anti-detection settings."""
+        options = ChromiumOptions()
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        ]
+        options.set_user_agent(random.choice(user_agents))
+        options.set_argument("--disable-blink-features=AutomationControlled")
+        options.set_argument("--disable-infobars")
+        options.set_argument("--disable-dev-shm-usage")
+        options.set_argument("--no-sandbox")
+        options.set_argument(f"--window-size={random.randint(1280, 1920)},{random.randint(800, 1080)}")
+        options.set_argument("--lang=pl-PL")
+        if self._headless:
+            options.set_argument("--headless=new")
+        options.set_argument("--disable-webrtc")
+        return options
+
+    def _start_browser(self) -> None:
+        """Start the browser with anti-detection settings."""
+        drission_logger.info("Starting browser...")
+        options = self._create_browser_options()
+        self._page = ChromiumPage(options)
+        self._inject_anti_detection_js()
+        drission_logger.info("Browser started successfully")
+
+    def _inject_anti_detection_js(self) -> None:
+        """Inject JavaScript to evade bot detection."""
+        if self._page is None:
+            return
+        js_code = """
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['pl-PL', 'pl', 'en-US', 'en'] });
+        window.chrome = { runtime: {} };
+        """
+        try:
+            self._page.run_js(js_code)
+        except Exception as e:
+            drission_logger.warning(f"Failed to inject anti-detection JS: {e}")
+
+    def _human_delay(self, min_sec: float = 0.5, max_sec: float = 2.0) -> None:
+        time.sleep(random.uniform(min_sec, max_sec))
+
+    def _handle_cookie_popup(self) -> bool:
+        """Handle the RODO/cookie consent popup."""
+        try:
+            self._human_delay(1.0, 2.0)
+            selectors = [
+                self.COOKIE_ACCEPT_SELECTOR,
+                "[data-role='accept-consent']",
+                "button:contains('Akceptuję')",
+                "[class*='cookie'] button",
+            ]
+            for selector in selectors:
+                try:
+                    button = self._page.ele(selector, timeout=2)
+                    if button:
+                        button.click()
+                        drission_logger.info("Cookie popup accepted")
+                        self._human_delay(0.5, 1.0)
+                        return True
+                except:
+                    continue
+            return False
+        except:
+            return False
+
+    def _perform_search(self, query: str) -> bool:
+        """Perform a search on Allegro."""
+        try:
+            search_input = None
+            for selector in [self.SEARCH_INPUT_SELECTOR, "input[type='search']", "#search-input"]:
+                try:
+                    search_input = self._page.ele(selector, timeout=3)
+                    if search_input:
+                        break
+                except:
+                    continue
+            if not search_input:
+                return False
+            search_input.click()
+            self._human_delay(0.3, 0.6)
+            search_input.clear()
+            self._typer.type_text(self._page, search_input, query)
+            self._human_delay(0.5, 1.0)
+            try:
+                search_btn = self._page.ele(self.SEARCH_BUTTON_SELECTOR, timeout=2)
+                if search_btn:
+                    search_btn.click()
+            except:
+                search_input.input("\n", clear=False)
+            self._human_delay(2.0, 4.0)
+            return True
+        except Exception as e:
+            drission_logger.error(f"Search failed: {e}")
+            return False
+
+    def _parse_drission_price(self, price_text: str) -> Optional[float]:
+        """Parse price from text."""
+        if not price_text:
+            return None
+        cleaned = price_text.replace("\xa0", "").replace(" ", "").replace(",", ".")
+        match = re.search(r"(\d+\.?\d*)", cleaned)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                return None
+        return None
+
+    def _extract_listings(self) -> List[DrissionListing]:
+        """Extract listing data from the current page."""
+        listings: List[DrissionListing] = []
+        try:
+            self._scroller.scroll_page(self._page, scroll_times=3)
+            articles = []
+            for selector in ["article[data-item]", "div[data-box-name='items'] article", "article"]:
+                try:
+                    found = self._page.eles(selector)
+                    if found and len(found) > 0:
+                        articles = found
+                        break
+                except:
+                    continue
+            for article in articles:
+                try:
+                    title_elem = article.ele("h2") or article.ele("h3") or article.ele("[class*='title']")
+                    title = title_elem.text.strip() if title_elem else ""
+                    if not title:
+                        continue
+                    price_elem = article.ele("[class*='price']")
+                    price_text = price_elem.text.strip() if price_elem else ""
+                    price = self._parse_drission_price(price_text)
+                    link_elem = article.ele("a[href*='/oferta/']")
+                    url = link_elem.attr("href") if link_elem else ""
+                    if url and not url.startswith("http"):
+                        url = f"https://allegro.pl{url}"
+                    listings.append(DrissionListing(
+                        title=title, price=price, price_text=price_text, url=url
+                    ))
+                except:
+                    continue
+            drission_logger.info(f"Extracted {len(listings)} listings")
+        except Exception as e:
+            drission_logger.error(f"Error extracting listings: {e}")
+        return listings
+
+    def search(self, query: str, max_pages: int = 1) -> DrissionScrapeResult:
+        """Perform a search on Allegro and return results."""
+        result = DrissionScrapeResult(success=False)
+        try:
+            if self._page is None:
+                self._start_browser()
+            drission_logger.info(f"Navigating to {self.ALLEGRO_URL}")
+            self._page.get(self.ALLEGRO_URL)
+            self._human_delay(2.0, 4.0)
+            self._handle_cookie_popup()
+            if not self._perform_search(query):
+                result.error_message = "Search failed"
+                return result
+            self._human_delay(2.0, 3.0)
+            all_listings: List[DrissionListing] = []
+            for page_num in range(max_pages):
+                page_listings = self._extract_listings()
+                all_listings.extend(page_listings)
+            result.success = True
+            result.listings = all_listings
+            result.pages_scraped = max_pages
+            drission_logger.info(f"Search complete: {len(all_listings)} listings")
+        except Exception as e:
+            drission_logger.error(f"Search error: {e}")
+            result.error_message = str(e)
+        return result
+
+    def close(self) -> None:
+        """Close the browser."""
+        if self._page:
+            try:
+                self._page.quit()
+            except:
+                pass
+            self._page = None
+
+    def __enter__(self) -> "AllegroDrissionScraper":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -595,6 +965,292 @@ class KeywordFilter:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# AI ANALYSIS - SMART ANALYZER & GEMINI
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class AnalysisResult:
+    """Result of AI/Smart analysis for a single listing."""
+    score: float  # 0-100, higher is better value
+    recommendation: str  # "🌟 SWEET SPOT", "✅ Dobra oferta", "⚠️ Przepłacone", etc.
+    reasoning: str  # Why this score
+    price_percentile: float  # Where this price falls in the distribution
+    quality_indicators: list[str]  # Detected quality keywords
+
+
+class SmartAnalyzer:
+    """
+    Local heuristic-based analyzer for finding price/quality sweet spots.
+    Works offline, no API needed.
+    """
+
+    # Quality indicators with their weight multipliers
+    QUALITY_KEYWORDS: dict[str, float] = {
+        # High quality indicators
+        "nowy": 1.2, "nowe": 1.2, "nowa": 1.2,
+        "oryginał": 1.3, "orginalny": 1.3,
+        "gwarancja": 1.25, "gwarancją": 1.25,
+        "faktura": 1.15, "vat": 1.1,
+        "premium": 1.3, "pro": 1.15,
+        "idealne": 1.2, "idealny": 1.2,
+        "pełny zestaw": 1.2, "komplet": 1.15,
+        # Technical quality
+        "rgb": 1.05, "gaming": 1.1,
+        "16gb": 1.1, "32gb": 1.2, "64gb": 1.25,
+        "ssd": 1.1, "nvme": 1.15,
+        "rtx": 1.2, "gtx": 1.1,
+        "i7": 1.15, "i9": 1.2, "ryzen 7": 1.15, "ryzen 9": 1.2,
+        # Negative indicators (reduce score)
+        "uszkodzony": 0.5, "uszkodzona": 0.5,
+        "na części": 0.4, "części": 0.6,
+        "niesprawny": 0.3, "zepsuty": 0.3,
+        "do naprawy": 0.4,
+        "bez": 0.8,  # "bez zasilacza", "bez kabla" etc.
+        "brak": 0.7,
+    }
+
+    # Platform trust scores
+    PLATFORM_TRUST: dict[str, float] = {
+        "Allegro": 1.1,  # Higher trust due to buyer protection
+        "OLX": 0.95,
+        "Vinted": 1.0,
+    }
+
+    def analyze(self, results: list[ScrapeResult]) -> dict[str, AnalysisResult]:
+        """
+        Analyze all results and return analysis for each.
+        Returns dict mapping result URL to AnalysisResult.
+        """
+        if not results:
+            return {}
+
+        # Calculate price statistics
+        prices = [r.price for r in results if r.price is not None and r.price > 0]
+        if not prices:
+            return {}
+
+        min_price = min(prices)
+        max_price = max(prices)
+        avg_price = sum(prices) / len(prices)
+        price_range = max_price - min_price if max_price > min_price else 1
+
+        # Sort prices for percentile calculation
+        sorted_prices = sorted(prices)
+
+        analysis: dict[str, AnalysisResult] = {}
+
+        for result in results:
+            if result.price is None or result.price <= 0:
+                continue
+
+            # Calculate price percentile (0 = cheapest, 100 = most expensive)
+            price_percentile = self._calculate_percentile(result.price, sorted_prices)
+
+            # Calculate quality score based on title keywords
+            quality_score, quality_indicators = self._analyze_quality(result.title)
+
+            # Apply platform trust multiplier
+            platform_multiplier = self.PLATFORM_TRUST.get(result.portal, 1.0)
+
+            # Calculate value score
+            # Sweet spot = good quality at lower price percentile
+            # Formula: quality_score * (100 - price_percentile) * platform_trust
+            raw_score = quality_score * ((100 - price_percentile) / 50) * platform_multiplier
+            final_score = min(100, max(0, raw_score * 50))  # Normalize to 0-100
+
+            # Determine recommendation
+            recommendation, reasoning = self._get_recommendation(
+                final_score, price_percentile, quality_score, quality_indicators, result.price, avg_price
+            )
+
+            analysis[result.url] = AnalysisResult(
+                score=round(final_score, 1),
+                recommendation=recommendation,
+                reasoning=reasoning,
+                price_percentile=round(price_percentile, 1),
+                quality_indicators=quality_indicators,
+            )
+
+        return analysis
+
+    def _calculate_percentile(self, price: float, sorted_prices: list[float]) -> float:
+        """Calculate what percentile this price falls into."""
+        count_below = sum(1 for p in sorted_prices if p < price)
+        return (count_below / len(sorted_prices)) * 100
+
+    def _analyze_quality(self, title: str) -> tuple[float, list[str]]:
+        """Analyze title for quality indicators. Returns (score, indicators)."""
+        title_lower = title.lower()
+        score = 1.0
+        indicators: list[str] = []
+
+        for keyword, multiplier in self.QUALITY_KEYWORDS.items():
+            if keyword in title_lower:
+                score *= multiplier
+                if multiplier > 1.0:
+                    indicators.append(f"✅ {keyword}")
+                elif multiplier < 1.0:
+                    indicators.append(f"⚠️ {keyword}")
+
+        return score, indicators
+
+    def _get_recommendation(
+        self,
+        score: float,
+        price_pct: float,
+        quality: float,
+        indicators: list[str],
+        price: float,
+        avg_price: float,
+    ) -> tuple[str, str]:
+        """Get recommendation text and reasoning."""
+        price_vs_avg = ((price - avg_price) / avg_price) * 100 if avg_price > 0 else 0
+
+        if score >= 75:
+            rec = "🌟 SWEET SPOT"
+            reason = f"Wysoka jakość ({quality:.1f}x) w dobrej cenie (percentyl {price_pct:.0f}%)"
+        elif score >= 60:
+            rec = "✅ Dobra oferta"
+            reason = f"Dobry stosunek jakości do ceny"
+        elif score >= 40:
+            rec = "🟡 Przeciętna"
+            if price_vs_avg > 20:
+                reason = f"Cena {price_vs_avg:.0f}% powyżej średniej"
+            else:
+                reason = f"Standardowa oferta"
+        elif score >= 20:
+            rec = "⚠️ Droższa"
+            reason = f"Cena w górnym przedziale (percentyl {price_pct:.0f}%)"
+        else:
+            rec = "❌ Przepłacone"
+            reason = f"Wysoka cena, niska wartość"
+
+        if indicators:
+            negative = [i for i in indicators if "⚠️" in i]
+            if negative:
+                reason += f" | Uwaga: {', '.join(negative)}"
+
+        return rec, reason
+
+    def get_top_recommendations(self, results: list[ScrapeResult], top_n: int = 3) -> list[tuple[ScrapeResult, AnalysisResult]]:
+        """Get top N sweet spot recommendations."""
+        analysis = self.analyze(results)
+        scored_results = [
+            (r, analysis[r.url])
+            for r in results
+            if r.url in analysis
+        ]
+        scored_results.sort(key=lambda x: x[1].score, reverse=True)
+        return scored_results[:top_n]
+
+
+class GeminiAnalyzer:
+    """
+    Google Gemini AI analyzer for advanced price/quality analysis.
+    Requires free API key from Google AI Studio.
+    Uses fallback strategy: best model first, then fallback to older models.
+    """
+
+    # Models in order of preference (best first, fallback to older)
+    GEMINI_MODELS = [
+        "gemini-2.5-flash",      # Best price-performance, stable
+        "gemini-2.5-pro",        # Most capable, stable
+        "gemini-2.0-flash",      # Previous gen (deprecated March 2026)
+    ]
+
+    API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
+
+    def analyze(self, results: list[ScrapeResult], context: str = "") -> Optional[str]:
+        """
+        Analyze results using Gemini AI with fallback strategy.
+        Returns AI-generated analysis text.
+        """
+        if not results:
+            return None
+
+        # Prepare data for AI
+        listings_text = self._prepare_listings(results)
+
+        prompt = f"""Jesteś ekspertem od zakupów online w Polsce. Przeanalizuj poniższe ogłoszenia i wskaż najlepsze oferty (sweet spot cena/jakość).
+
+Kontekst wyszukiwania: {context if context else 'brak'}
+
+Ogłoszenia:
+{listings_text}
+
+Przeanalizuj i odpowiedz w formacie:
+1. 🌟 TOP 3 REKOMENDACJE - najlepszy stosunek cena/jakość
+2. ⚠️ UNIKAJ - oferty przepłacone lub podejrzane
+3. 📊 PODSUMOWANIE - ogólna ocena rynku i sugerowany przedział cenowy
+
+Bądź zwięzły i konkretny. Odpowiadaj po polsku."""
+
+        # Try each model in order until one works
+        last_error = None
+        for model in self.GEMINI_MODELS:
+            try:
+                url = f"{self.API_BASE}/{model}:generateContent?key={self._api_key}"
+                response = requests.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.7,
+                            "maxOutputTokens": 8096,
+                        }
+                    },
+                    timeout=60,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if "candidates" in data and data["candidates"]:
+                        print(f"[Gemini] Success with model: {model}")
+                        return data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    last_error = f"{response.status_code}: {response.text[:100]}"
+                    print(f"[Gemini] Model {model} failed: {last_error}")
+                    continue  # Try next model
+
+            except Exception as exc:
+                last_error = str(exc)
+                print(f"[Gemini] Model {model} error: {exc}")
+                continue  # Try next model
+
+        print(f"[Gemini] All models failed. Last error: {last_error}")
+        return None
+
+    def _prepare_listings(self, results: list[ScrapeResult]) -> str:
+        """Format results for AI prompt."""
+        lines: list[str] = []
+        for i, r in enumerate(results[:20], 1):  # Limit to 20 to avoid token limits
+            price_str = f"{r.price:.2f} zł" if r.price else "brak ceny"
+            lines.append(f"{i}. [{r.portal}] {r.title[:80]} - {price_str}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def validate_api_key(api_key: str) -> bool:
+        """Quick validation of API key using current model."""
+        if not api_key or len(api_key) < 20:
+            return False
+        try:
+            # Try with gemini-2.5-flash (best price-performance)
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": "test"}]}]},
+                timeout=10,
+            )
+            return resp.status_code == 200
+        except:
+            return False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # BASE SCRAPER
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -885,8 +1541,21 @@ class AllegroScraper(BaseScraper):
         if cancel_event.is_set():
             return results
 
-        soup: Optional[BeautifulSoup] = self._fetch_with_session(url)
+        # Try requests-based scraping first
+        soup: Optional[BeautifulSoup] = None
+        try:
+            soup = self._fetch_with_session(url)
+        except requests.RequestException as e:
+            print(f"[{self.PORTAL_NAME}] Requests failed: {e}")
+            # Fallback to DrissionPage
+            if DRISSION_AVAILABLE:
+                return self._search_with_drission(keywords, price_min, price_max)
+            raise
+
         if soup is None:
+            # Fallback to DrissionPage if requests returned nothing
+            if DRISSION_AVAILABLE:
+                return self._search_with_drission(keywords, price_min, price_max)
             return results
 
         # Allegro listing articles
@@ -944,6 +1613,46 @@ class AllegroScraper(BaseScraper):
             )
 
         self._random_delay()
+        return results
+
+    def _search_with_drission(self, keywords: list[str], price_min: Optional[float], price_max: Optional[float]) -> list[ScrapeResult]:
+        """Fallback: Use DrissionPage CDP-based scraper for Allegro."""
+        if not DRISSION_AVAILABLE:
+            print(f"[{self.PORTAL_NAME}] DrissionPage not available")
+            return []
+
+        print(f"[{self.PORTAL_NAME}] Trying DrissionPage (CDP browser)...")
+        results: list[ScrapeResult] = []
+
+        try:
+            query = " ".join(keywords)
+            with AllegroDrissionScraper(headless=True) as scraper:
+                drission_result = scraper.search(query, max_pages=1)
+
+                if drission_result.success:
+                    for listing in drission_result.listings:
+                        # Filter by price if specified
+                        if listing.price is not None:
+                            if price_min is not None and listing.price < price_min:
+                                continue
+                            if price_max is not None and listing.price > price_max:
+                                continue
+
+                        results.append(ScrapeResult(
+                            portal=self.PORTAL_NAME,
+                            title=listing.title,
+                            price=listing.price,
+                            price_text=listing.price_text,
+                            url=listing.url,
+                        ))
+
+                    print(f"[{self.PORTAL_NAME}] DrissionPage: {len(results)} results")
+                else:
+                    print(f"[{self.PORTAL_NAME}] DrissionPage failed: {drission_result.error_message}")
+
+        except Exception as e:
+            print(f"[{self.PORTAL_NAME}] DrissionPage error: {e}")
+
         return results
 
 
@@ -1486,14 +2195,60 @@ class MarketMapApp(ctk.CTk):
         self._is_scanning: bool = False
         self._result_count: int = 0
         self._result_cards: list[ResultCard] = []
+        self._all_results: list[ScrapeResult] = []  # Store all results for AI analysis
 
         # Platform checkboxes state
         self._chk_allegro_var: ctk.BooleanVar = ctk.BooleanVar(value=True)
         self._chk_olx_var: ctk.BooleanVar = ctk.BooleanVar(value=True)
         self._chk_vinted_var: ctk.BooleanVar = ctk.BooleanVar(value=True)
 
+        # AI Analysis state
+        self._smart_analyzer: SmartAnalyzer = SmartAnalyzer()
+        self._analysis_results: dict[str, AnalysisResult] = {}
+
+        # Settings (loaded from config file)
+        self._settings: dict = self._load_settings()
+
         # Build UI
         self._build_layout()
+
+    # ── Settings Persistence ────────────────────────────────────────────────
+
+    def _get_config_path(self) -> str:
+        """Get path to config file."""
+        import os
+        app_data = os.environ.get("APPDATA", os.path.expanduser("~"))
+        config_dir = os.path.join(app_data, "MarketMap")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "settings.json")
+
+    def _load_settings(self) -> dict:
+        """Load settings from config file."""
+        default_settings = {
+            "ai_provider": "gemini",  # gemini, openai, anthropic
+            "gemini_api_key": "",
+            "openai_api_key": "",
+            "anthropic_api_key": "",
+        }
+        try:
+            config_path = self._get_config_path()
+            import os
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    default_settings.update(loaded)
+        except Exception as e:
+            print(f"[Settings] Failed to load: {e}")
+        return default_settings
+
+    def _save_settings(self) -> None:
+        """Save settings to config file."""
+        try:
+            config_path = self._get_config_path()
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(self._settings, f, indent=2)
+        except Exception as e:
+            print(f"[Settings] Failed to save: {e}")
 
     # ── Layout ────────────────────────────────────────────────────────────
 
@@ -1609,7 +2364,7 @@ class MarketMapApp(ctk.CTk):
         sec_kw = ctk.CTkLabel(
             sidebar,
             text="FILTER EXPRESSION",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color=COLORS["text_muted"],
             anchor="w",
         )
@@ -1633,7 +2388,7 @@ class MarketMapApp(ctk.CTk):
         syntax_help = ctk.CTkLabel(
             sidebar,
             text="ℹ 'i' lub '+' (AND), 'lub' lub '||' (OR)",
-            font=ctk.CTkFont(size=10),
+            font=ctk.CTkFont(size=12),
             text_color=COLORS["text_muted"],
             anchor="w",
         )
@@ -1717,6 +2472,22 @@ class MarketMapApp(ctk.CTk):
         self._status_label.grid(row=row, column=0, padx=24, pady=(10, 10), sticky="w")
         row += 1
 
+        # ── Options button
+        options_btn = ctk.CTkButton(
+            sidebar,
+            text="⚙   Opcje",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            fg_color=COLORS["card_bg"],
+            hover_color=COLORS["card_hover"],
+            border_width=1,
+            border_color=COLORS["border"],
+            corner_radius=10,
+            height=40,
+            command=self._show_options_dialog,
+        )
+        options_btn.grid(row=row, column=0, padx=20, pady=(0, 8), sticky="ew")
+        row += 1
+
         # ── Close button
         close_btn = ctk.CTkButton(
             sidebar,
@@ -1761,6 +2532,20 @@ class MarketMapApp(ctk.CTk):
         )
         self._results_counter.grid(row=0, column=1, sticky="e", padx=(0, 4))
 
+        # ── AI Analyze button
+        self._analyze_btn = ctk.CTkButton(
+            header,
+            text="🧠 Analizuj AI",
+            width=110,
+            height=30,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            corner_radius=8,
+            command=self._show_ai_analysis,
+        )
+        self._analyze_btn.grid(row=0, column=2, padx=(8, 0))
+
         # ── Clear button
         clear_btn = ctk.CTkButton(
             header,
@@ -1775,7 +2560,7 @@ class MarketMapApp(ctk.CTk):
             corner_radius=8,
             command=self._clear_results,
         )
-        clear_btn.grid(row=0, column=2, padx=(8, 0))
+        clear_btn.grid(row=0, column=3, padx=(8, 0))
 
         # ── Scrollable results
         self._results_frame = ctk.CTkScrollableFrame(
@@ -1925,6 +2710,9 @@ class MarketMapApp(ctk.CTk):
         if self._empty_label.winfo_ismapped():
             self._empty_label.grid_forget()
 
+        # Store result for AI analysis
+        self._all_results.append(result)
+
         card = ResultCard(self._results_frame, result)
         card.grid(
             row=len(self._result_cards),
@@ -1942,10 +2730,442 @@ class MarketMapApp(ctk.CTk):
         for card in self._result_cards:
             card.destroy()
         self._result_cards.clear()
+        self._all_results.clear()  # Clear AI analysis data
+        self._analysis_results.clear()
         self._result_count = 0
         self._results_counter.configure(text="0 items found")
         self._empty_label.grid(row=0, column=0, pady=120)
         self._status_label.configure(text="Ready", text_color=COLORS["text_muted"])
+
+    def _show_options_dialog(self) -> None:
+        """Show options dialog for AI API key configuration."""
+        popup = ctk.CTkToplevel(self)
+        popup.title("⚙ Opcje")
+        popup.geometry("500x520")
+        popup.configure(fg_color=COLORS["bg_dark"])
+        popup.transient(self)
+        popup.grab_set()
+        popup.resizable(False, False)
+
+        # Header
+        header = ctk.CTkLabel(
+            popup,
+            text="⚙ Ustawienia AI",
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        header.pack(pady=(20, 15))
+
+        # Main content frame - don't expand so buttons stay visible
+        content = ctk.CTkFrame(popup, fg_color=COLORS["sidebar_bg"], corner_radius=10)
+        content.pack(fill="x", padx=20, pady=(0, 10))
+
+        # AI Provider selection
+        provider_label = ctk.CTkLabel(
+            content,
+            text="Wybierz dostawcę AI:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        provider_label.pack(pady=(20, 10), padx=20, anchor="w")
+
+        provider_var = ctk.StringVar(value=self._settings.get("ai_provider", "gemini"))
+
+        providers_frame = ctk.CTkFrame(content, fg_color="transparent")
+        providers_frame.pack(fill="x", padx=20)
+
+        providers = [
+            ("gemini", "✨ Google Gemini (darmowy)"),
+            ("openai", "🧠 OpenAI GPT-4"),
+            ("anthropic", "🤖 Anthropic Claude"),
+        ]
+
+        for value, label in providers:
+            rb = ctk.CTkRadioButton(
+                providers_frame,
+                text=label,
+                variable=provider_var,
+                value=value,
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_secondary"],
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+            )
+            rb.pack(anchor="w", pady=3)
+
+        # Divider
+        divider = ctk.CTkFrame(content, height=1, fg_color=COLORS["border"])
+        divider.pack(fill="x", padx=20, pady=15)
+
+        # API Keys section
+        keys_label = ctk.CTkLabel(
+            content,
+            text="Klucze API:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        keys_label.pack(pady=(5, 10), padx=20, anchor="w")
+
+        # Gemini API Key
+        gemini_frame = ctk.CTkFrame(content, fg_color="transparent")
+        gemini_frame.pack(fill="x", padx=20, pady=5)
+        ctk.CTkLabel(gemini_frame, text="Gemini:", width=80, anchor="w",
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        gemini_entry = ctk.CTkEntry(
+            gemini_frame, placeholder_text="Klucz API Gemini",
+            fg_color=COLORS["card_bg"], border_color=COLORS["border"],
+            show="*", width=300
+        )
+        gemini_entry.pack(side="left", fill="x", expand=True)
+        if self._settings.get("gemini_api_key"):
+            gemini_entry.insert(0, self._settings["gemini_api_key"])
+
+        # OpenAI API Key
+        openai_frame = ctk.CTkFrame(content, fg_color="transparent")
+        openai_frame.pack(fill="x", padx=20, pady=5)
+        ctk.CTkLabel(openai_frame, text="OpenAI:", width=80, anchor="w",
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        openai_entry = ctk.CTkEntry(
+            openai_frame, placeholder_text="Klucz API OpenAI",
+            fg_color=COLORS["card_bg"], border_color=COLORS["border"],
+            show="*", width=300
+        )
+        openai_entry.pack(side="left", fill="x", expand=True)
+        if self._settings.get("openai_api_key"):
+            openai_entry.insert(0, self._settings["openai_api_key"])
+
+        # Anthropic API Key
+        anthropic_frame = ctk.CTkFrame(content, fg_color="transparent")
+        anthropic_frame.pack(fill="x", padx=20, pady=5)
+        ctk.CTkLabel(anthropic_frame, text="Anthropic:", width=80, anchor="w",
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        anthropic_entry = ctk.CTkEntry(
+            anthropic_frame, placeholder_text="Klucz API Anthropic",
+            fg_color=COLORS["card_bg"], border_color=COLORS["border"],
+            show="*", width=300
+        )
+        anthropic_entry.pack(side="left", fill="x", expand=True)
+        if self._settings.get("anthropic_api_key"):
+            anthropic_entry.insert(0, self._settings["anthropic_api_key"])
+
+        # Info label
+        info_label = ctk.CTkLabel(
+            content,
+            text="ℹ Gemini: aistudio.google.com/app/apikey (darmowy)",
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_muted"],
+        )
+        info_label.pack(pady=(15, 10), padx=20, anchor="w")
+
+        # Save function
+        def save_and_close():
+            self._settings["ai_provider"] = provider_var.get()
+            self._settings["gemini_api_key"] = gemini_entry.get().strip()
+            self._settings["openai_api_key"] = openai_entry.get().strip()
+            self._settings["anthropic_api_key"] = anthropic_entry.get().strip()
+            self._save_settings()
+            self._status_label.configure(text="✅ Ustawienia zapisane", text_color=COLORS["success"])
+            popup.destroy()
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+        save_btn = ctk.CTkButton(
+            btn_frame,
+            text="💾 Zapisz",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            width=120,
+            command=save_and_close,
+        )
+        save_btn.pack(side="left", padx=(0, 10))
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Anuluj",
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["card_bg"],
+            hover_color=COLORS["card_hover"],
+            width=100,
+            command=popup.destroy,
+        )
+        cancel_btn.pack(side="left")
+
+    def _show_ai_analysis(self) -> None:
+        """Show AI analysis popup with smart recommendations."""
+        if not self._all_results:
+            self._status_label.configure(
+                text="⚠ Brak wyników do analizy!",
+                text_color=COLORS["warning"]
+            )
+            return
+
+        # Create analysis popup window
+        popup = ctk.CTkToplevel(self)
+        popup.title("🧠 Analiza AI - Sweet Spot")
+        popup.geometry("700x600")
+        popup.configure(fg_color=COLORS["bg_dark"])
+        popup.transient(self)
+        popup.grab_set()
+
+        # Header
+        header = ctk.CTkLabel(
+            popup,
+            text="🧠 Analiza Cena/Jakość",
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        header.pack(pady=(20, 10))
+
+        # Tabs for Smart vs Gemini analysis
+        tabview = ctk.CTkTabview(popup, fg_color=COLORS["sidebar_bg"])
+        tabview.pack(fill="both", expand=True, padx=20, pady=10)
+
+        # Tab 1: Smart Analysis (local)
+        smart_tab = tabview.add("📊 Smart Analyzer")
+        self._build_smart_analysis_tab(smart_tab)
+
+        # Tab 2: Gemini AI
+        gemini_tab = tabview.add("✨ Gemini AI")
+        self._build_gemini_tab(gemini_tab)
+
+        # Close button
+        close_btn = ctk.CTkButton(
+            popup,
+            text="Zamknij",
+            width=120,
+            fg_color=COLORS["card_bg"],
+            hover_color=COLORS["card_hover"],
+            command=popup.destroy,
+        )
+        close_btn.pack(pady=(0, 20))
+
+    def _build_smart_analysis_tab(self, parent: ctk.CTkFrame) -> None:
+        """Build the Smart Analyzer tab content."""
+        # Run analysis
+        top_results = self._smart_analyzer.get_top_recommendations(self._all_results, top_n=5)
+
+        if not top_results:
+            no_data = ctk.CTkLabel(
+                parent,
+                text="Brak danych do analizy (brak cen)",
+                font=ctk.CTkFont(size=14),
+                text_color=COLORS["text_muted"],
+            )
+            no_data.pack(pady=40)
+            return
+
+        # Stats header
+        prices = [r.price for r in self._all_results if r.price and r.price > 0]
+        if prices:
+            avg_price = sum(prices) / len(prices)
+            min_price = min(prices)
+            max_price = max(prices)
+            stats_text = f"💰 Zakres cen: {min_price:.0f} - {max_price:.0f} zł  |  Średnia: {avg_price:.0f} zł  |  {len(self._all_results)} ogłoszeń"
+            stats_label = ctk.CTkLabel(
+                parent,
+                text=stats_text,
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_secondary"],
+            )
+            stats_label.pack(pady=(10, 15))
+
+        # Scrollable results
+        scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=5)
+
+        for i, (result, analysis) in enumerate(top_results):
+            # Result frame
+            frame = ctk.CTkFrame(scroll, fg_color=COLORS["card_bg"], corner_radius=10)
+            frame.pack(fill="x", pady=5, padx=5)
+
+            # Rank badge
+            rank_colors = ["#FFD700", "#C0C0C0", "#CD7F32", COLORS["accent"], COLORS["accent"]]
+            rank_label = ctk.CTkLabel(
+                frame,
+                text=f"#{i+1}",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=rank_colors[i] if i < len(rank_colors) else COLORS["text_primary"],
+                width=40,
+            )
+            rank_label.grid(row=0, column=0, rowspan=2, padx=(10, 5), pady=10)
+
+            # Recommendation badge
+            rec_label = ctk.CTkLabel(
+                frame,
+                text=analysis.recommendation,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["text_primary"],
+            )
+            rec_label.grid(row=0, column=1, sticky="w", padx=5, pady=(10, 2))
+
+            # Title + price
+            title_text = f"{result.title[:60]}{'...' if len(result.title) > 60 else ''}  •  {result.price:.0f} zł" if result.price else result.title[:60]
+            title_label = ctk.CTkLabel(
+                frame,
+                text=title_text,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"],
+                anchor="w",
+            )
+            title_label.grid(row=1, column=1, sticky="w", padx=5, pady=(0, 5))
+
+            # Score + reasoning
+            score_text = f"Score: {analysis.score:.0f}/100  |  {analysis.reasoning}"
+            score_label = ctk.CTkLabel(
+                frame,
+                text=score_text,
+                font=ctk.CTkFont(size=10),
+                text_color=COLORS["text_muted"],
+                anchor="w",
+            )
+            score_label.grid(row=2, column=1, sticky="w", padx=5, pady=(0, 10))
+
+            # Open button
+            open_btn = ctk.CTkButton(
+                frame,
+                text="Otwórz",
+                width=60,
+                height=28,
+                font=ctk.CTkFont(size=11),
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                command=lambda url=result.url: webbrowser.open(url),
+            )
+            open_btn.grid(row=0, column=2, rowspan=3, padx=10, pady=10)
+
+    def _build_gemini_tab(self, parent: ctk.CTkFrame) -> None:
+        """Build the Gemini AI tab content."""
+        # API Key input
+        key_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        key_frame.pack(fill="x", padx=20, pady=(15, 10))
+
+        key_label = ctk.CTkLabel(
+            key_frame,
+            text="Gemini API Key:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"],
+        )
+        key_label.pack(side="left", padx=(0, 10))
+
+        self._gemini_key_entry = ctk.CTkEntry(
+            key_frame,
+            placeholder_text="Wklej klucz API z Google AI Studio",
+            width=300,
+            fg_color=COLORS["card_bg"],
+            border_color=COLORS["border"],
+            show="*",
+        )
+        self._gemini_key_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        # Load saved API key from settings
+        saved_key = self._settings.get("gemini_api_key", "")
+        if saved_key:
+            self._gemini_key_entry.insert(0, saved_key)
+
+        # Info label
+        info_label = ctk.CTkLabel(
+            parent,
+            text="ℹ Darmowy klucz: https://aistudio.google.com/app/apikey",
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_muted"],
+        )
+        info_label.pack(pady=(0, 10))
+
+        # Analyze button
+        analyze_btn = ctk.CTkButton(
+            parent,
+            text="✨ Analizuj z Gemini",
+            width=180,
+            height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=lambda: self._run_gemini_analysis(parent),
+        )
+        analyze_btn.pack(pady=10)
+
+        # Results area
+        self._gemini_results_frame = ctk.CTkScrollableFrame(
+            parent,
+            fg_color=COLORS["card_bg"],
+            corner_radius=10,
+        )
+        self._gemini_results_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        placeholder = ctk.CTkLabel(
+            self._gemini_results_frame,
+            text="Kliknij 'Analizuj z Gemini' aby uruchomić analizę AI",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_muted"],
+        )
+        placeholder.pack(pady=40)
+
+    def _run_gemini_analysis(self, parent: ctk.CTkFrame) -> None:
+        """Run Gemini AI analysis in background."""
+        api_key = self._gemini_key_entry.get().strip()
+        if not api_key:
+            self._show_gemini_error("Wprowadź klucz API Gemini")
+            return
+
+        self._gemini_api_key = api_key  # Save for later
+
+        # Clear previous results
+        for widget in self._gemini_results_frame.winfo_children():
+            widget.destroy()
+
+        # Show loading
+        loading = ctk.CTkLabel(
+            self._gemini_results_frame,
+            text="⏳ Analizuję z Gemini AI...",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["accent"],
+        )
+        loading.pack(pady=40)
+        self.update()
+
+        # Run analysis in thread
+        def analyze():
+            gemini = GeminiAnalyzer(api_key)
+            context = self._keywords_entry.get().strip()
+            result = gemini.analyze(self._all_results, context)
+            self.after(0, lambda: self._show_gemini_result(result))
+
+        thread = threading.Thread(target=analyze, daemon=True)
+        thread.start()
+
+    def _show_gemini_result(self, result: Optional[str]) -> None:
+        """Display Gemini analysis result."""
+        for widget in self._gemini_results_frame.winfo_children():
+            widget.destroy()
+
+        if result:
+            result_label = ctk.CTkLabel(
+                self._gemini_results_frame,
+                text=result,
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_primary"],
+                anchor="w",
+                justify="left",
+                wraplength=600,
+            )
+            result_label.pack(pady=15, padx=15, anchor="w")
+        else:
+            self._show_gemini_error("Błąd analizy. Sprawdź klucz API.")
+
+    def _show_gemini_error(self, message: str) -> None:
+        """Show error in Gemini results frame."""
+        for widget in self._gemini_results_frame.winfo_children():
+            widget.destroy()
+
+        error_label = ctk.CTkLabel(
+            self._gemini_results_frame,
+            text=f"⚠ {message}",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["warning"],
+        )
+        error_label.pack(pady=40)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
