@@ -23,6 +23,208 @@ from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 
 # ──────────────────────────────────────────────────────────────────────────────
+# HUMAN SIMULATION & ANTI-BOT EVASION
+# ──────────────────────────────────────────────────────────────────────────────
+
+class HumanSimulator:
+    """Simulates human-like browsing behavior to evade anti-bot detection."""
+
+    # Realistic browser fingerprints with matching User-Agents and headers
+    BROWSER_PROFILES: list[dict] = [
+        {
+            "name": "Chrome Windows",
+            "user_agents": [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            ],
+            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec_ch_ua_platform": '"Windows"',
+            "sec_ch_ua_mobile": "?0",
+        },
+        {
+            "name": "Firefox Windows",
+            "user_agents": [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+            ],
+            "sec_ch_ua": None,
+            "sec_ch_ua_platform": None,
+            "sec_ch_ua_mobile": None,
+        },
+        {
+            "name": "Edge Windows",
+            "user_agents": [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
+            ],
+            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
+            "sec_ch_ua_platform": '"Windows"',
+            "sec_ch_ua_mobile": "?0",
+        },
+        {
+            "name": "Chrome Mac",
+            "user_agents": [
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            ],
+            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec_ch_ua_platform": '"macOS"',
+            "sec_ch_ua_mobile": "?0",
+        },
+        {
+            "name": "Safari Mac",
+            "user_agents": [
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+            ],
+            "sec_ch_ua": None,
+            "sec_ch_ua_platform": None,
+            "sec_ch_ua_mobile": None,
+        },
+    ]
+
+    # Realistic screen resolutions
+    SCREEN_RESOLUTIONS: list[str] = [
+        "1920x1080", "2560x1440", "1366x768", "1536x864",
+        "1440x900", "1680x1050", "2560x1080", "3840x2160",
+    ]
+
+    # Realistic Accept-Language headers for Polish users
+    ACCEPT_LANGUAGES: list[str] = [
+        "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+        "pl-PL,pl;q=0.9,en;q=0.8",
+        "pl,en-US;q=0.9,en;q=0.8",
+        "pl-PL,pl;q=0.8,en-US;q=0.6,en;q=0.4",
+    ]
+
+    def __init__(self) -> None:
+        self._current_profile: dict = random.choice(self.BROWSER_PROFILES)
+        self._current_ua: str = random.choice(self._current_profile["user_agents"])
+        self._session_start: float = time.time()
+        self._request_count: int = 0
+        self._last_request_time: float = 0
+        # Fallback to fake_useragent for variety
+        self._ua_fallback: UserAgent = UserAgent()
+
+    def rotate_identity(self) -> None:
+        """Rotate to a new browser identity."""
+        self._current_profile = random.choice(self.BROWSER_PROFILES)
+        self._current_ua = random.choice(self._current_profile["user_agents"])
+        self._request_count = 0
+
+    def get_user_agent(self) -> str:
+        """Get current or rotated User-Agent string."""
+        # Rotate identity every 5-15 requests randomly
+        if self._request_count > random.randint(5, 15):
+            self.rotate_identity()
+
+        # 20% chance to use fake_useragent for more variety
+        if random.random() < 0.2:
+            try:
+                return self._ua_fallback.random
+            except Exception:
+                pass
+
+        return self._current_ua
+
+    def get_headers(self, referer: Optional[str] = None) -> dict[str, str]:
+        """Generate realistic browser headers with fingerprint consistency."""
+        self._request_count += 1
+        ua = self.get_user_agent()
+
+        headers: dict[str, str] = {
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": random.choice(self.ACCEPT_LANGUAGES),
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Cache-Control": "max-age=0",
+            "DNT": "1" if random.random() > 0.5 else "0",
+        }
+
+        # Add Sec-CH-UA headers for Chromium-based browsers
+        if self._current_profile.get("sec_ch_ua"):
+            headers["Sec-CH-UA"] = self._current_profile["sec_ch_ua"]
+            headers["Sec-CH-UA-Mobile"] = self._current_profile["sec_ch_ua_mobile"]
+            headers["Sec-CH-UA-Platform"] = self._current_profile["sec_ch_ua_platform"]
+
+        # Add Sec-Fetch headers (modern browsers)
+        headers["Sec-Fetch-Dest"] = "document"
+        headers["Sec-Fetch-Mode"] = "navigate"
+        headers["Sec-Fetch-Site"] = "same-origin" if referer else "none"
+        headers["Sec-Fetch-User"] = "?1"
+
+        if referer:
+            headers["Referer"] = referer
+
+        return headers
+
+    def human_delay(self, min_sec: float = 1.0, max_sec: float = 4.0) -> None:
+        """Simulate human-like delay with natural variation."""
+        # Add jitter to make delays less predictable
+        base_delay = random.uniform(min_sec, max_sec)
+
+        # Occasionally add longer "thinking" pauses (simulating reading)
+        if random.random() < 0.15:
+            base_delay += random.uniform(1.0, 3.0)
+
+        # Add micro-variations to avoid detection patterns
+        jitter = random.gauss(0, 0.2)
+        final_delay = max(0.5, base_delay + jitter)
+
+        time.sleep(final_delay)
+
+    def reading_delay(self) -> None:
+        """Simulate time spent reading a page."""
+        # Humans take time to read/process content
+        time.sleep(random.uniform(0.5, 2.0))
+
+    def typing_delay(self) -> None:
+        """Simulate typing speed delay."""
+        # Simulate human typing speed (40-80 WPM)
+        time.sleep(random.uniform(0.05, 0.15))
+
+    def request_throttle(self) -> None:
+        """Ensure minimum time between requests to avoid rate limiting."""
+        current_time = time.time()
+        time_since_last = current_time - self._last_request_time
+
+        # Minimum 0.5-1.5 seconds between requests
+        min_interval = random.uniform(0.5, 1.5)
+        if time_since_last < min_interval:
+            time.sleep(min_interval - time_since_last)
+
+        self._last_request_time = time.time()
+
+    def should_take_break(self) -> bool:
+        """Determine if we should take a longer break (simulates human fatigue)."""
+        # Take a break every 20-40 requests
+        return self._request_count > 0 and self._request_count % random.randint(20, 40) == 0
+
+    def take_break(self) -> None:
+        """Take a longer break to simulate human behavior."""
+        print("[HumanSimulator] Taking a short break...")
+        time.sleep(random.uniform(5.0, 15.0))
+        self.rotate_identity()  # Change identity after break
+
+
+# Global human simulator instance for consistent behavior
+_human_sim: Optional[HumanSimulator] = None
+
+
+def get_human_simulator() -> HumanSimulator:
+    """Get or create the global human simulator instance."""
+    global _human_sim
+    if _human_sim is None:
+        _human_sim = HumanSimulator()
+    return _human_sim
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # DATA MODELS
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -41,8 +243,7 @@ class ScrapeResult:
 class ScrapeConfig:
     """Configuration passed from GUI to the scraper manager."""
     platforms: list[str]
-    keywords: list[str]
-    logic: str  # "AND" or "OR"
+    keyword_expression: str  # Boolean expression, e.g. "ddr5 i ram i (cl30 lub cl40)"
     price_min: Optional[float]
     price_max: Optional[float]
 
@@ -66,6 +267,334 @@ def parse_price(raw: str) -> Optional[float]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# INTELLIGENT KEYWORD FILTER (Boolean Expression Parser)
+# Syntax: keyword1 i keyword2 lub (keyword3 i keyword4)
+# Operators: 'i' (AND), 'lub' (OR), parentheses for grouping
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TokenType:
+    """Token types for the expression parser."""
+    KEYWORD = "KEYWORD"
+    AND = "AND"
+    OR = "OR"
+    LPAREN = "LPAREN"
+    RPAREN = "RPAREN"
+    EOF = "EOF"
+
+
+@dataclass
+class Token:
+    """A single token from the expression."""
+    type: str
+    value: str
+
+
+class KeywordExpressionLexer:
+    """Tokenizes a keyword expression string."""
+
+    # Operators in Polish and symbols
+    AND_KEYWORDS = {"i", "and", "&", "&&", "+"}
+    OR_KEYWORDS = {"lub", "or", "|", "||"}
+
+    def __init__(self, expression: str) -> None:
+        self._expr: str = expression
+        self._pos: int = 0
+        self._length: int = len(expression)
+
+    def _current_char(self) -> Optional[str]:
+        if self._pos >= self._length:
+            return None
+        return self._expr[self._pos]
+
+    def _advance(self) -> None:
+        self._pos += 1
+
+    def _skip_whitespace(self) -> None:
+        while self._current_char() is not None and self._current_char().isspace():
+            self._advance()
+
+    def _read_word(self) -> str:
+        """Read a word (keyword or operator)."""
+        start = self._pos
+        while self._current_char() is not None:
+            ch = self._current_char()
+            if ch.isspace() or ch in "()":
+                break
+            self._advance()
+        return self._expr[start:self._pos]
+
+    def tokenize(self) -> list[Token]:
+        """Convert the expression into a list of tokens."""
+        tokens: list[Token] = []
+
+        while self._pos < self._length:
+            self._skip_whitespace()
+
+            if self._pos >= self._length:
+                break
+
+            ch = self._current_char()
+
+            if ch == "(":
+                tokens.append(Token(TokenType.LPAREN, "("))
+                self._advance()
+            elif ch == ")":
+                tokens.append(Token(TokenType.RPAREN, ")"))
+                self._advance()
+            else:
+                word = self._read_word()
+                if not word:
+                    continue
+
+                word_lower = word.lower()
+                if word_lower in self.AND_KEYWORDS:
+                    tokens.append(Token(TokenType.AND, word))
+                elif word_lower in self.OR_KEYWORDS:
+                    tokens.append(Token(TokenType.OR, word))
+                else:
+                    tokens.append(Token(TokenType.KEYWORD, word))
+
+        tokens.append(Token(TokenType.EOF, ""))
+        return tokens
+
+
+class KeywordExpressionNode(ABC):
+    """Base class for expression AST nodes."""
+
+    @abstractmethod
+    def evaluate(self, text: str) -> bool:
+        """Evaluate this node against the given text."""
+        ...
+
+    @abstractmethod
+    def get_keywords(self) -> list[str]:
+        """Return all keywords in this expression."""
+        ...
+
+    @abstractmethod
+    def get_matched_keywords(self, text: str) -> list[str]:
+        """Return keywords that matched in the text."""
+        ...
+
+
+@dataclass
+class KeywordNode(KeywordExpressionNode):
+    """A leaf node representing a single keyword."""
+    keyword: str
+
+    def evaluate(self, text: str) -> bool:
+        return self.keyword.lower() in text.lower()
+
+    def get_keywords(self) -> list[str]:
+        return [self.keyword]
+
+    def get_matched_keywords(self, text: str) -> list[str]:
+        if self.evaluate(text):
+            return [self.keyword]
+        return []
+
+
+@dataclass
+class AndNode(KeywordExpressionNode):
+    """A node representing AND operation between two expressions."""
+    left: KeywordExpressionNode
+    right: KeywordExpressionNode
+
+    def evaluate(self, text: str) -> bool:
+        return self.left.evaluate(text) and self.right.evaluate(text)
+
+    def get_keywords(self) -> list[str]:
+        return self.left.get_keywords() + self.right.get_keywords()
+
+    def get_matched_keywords(self, text: str) -> list[str]:
+        return self.left.get_matched_keywords(text) + self.right.get_matched_keywords(text)
+
+
+@dataclass
+class OrNode(KeywordExpressionNode):
+    """A node representing OR operation between two expressions."""
+    left: KeywordExpressionNode
+    right: KeywordExpressionNode
+
+    def evaluate(self, text: str) -> bool:
+        return self.left.evaluate(text) or self.right.evaluate(text)
+
+    def get_keywords(self) -> list[str]:
+        return self.left.get_keywords() + self.right.get_keywords()
+
+    def get_matched_keywords(self, text: str) -> list[str]:
+        return self.left.get_matched_keywords(text) + self.right.get_matched_keywords(text)
+
+
+class KeywordExpressionParser:
+    """
+    Recursive descent parser for keyword expressions.
+
+    Grammar:
+        expression  -> term ((OR) term)*
+        term        -> factor ((AND) factor)*
+        factor      -> KEYWORD | LPAREN expression RPAREN
+
+    Examples:
+        - "ddr5 i ram" -> ddr5 AND ram
+        - "ddr5 lub ddr4" -> ddr5 OR ddr4
+        - "ddr5 i (cl30 lub cl40)" -> ddr5 AND (cl30 OR cl40)
+        - "ddr5 i ram i (cl30 lub cl40) i (2x16 lub 32)" -> complex expression
+    """
+
+    def __init__(self, expression: str) -> None:
+        self._expression: str = expression
+        self._tokens: list[Token] = []
+        self._pos: int = 0
+
+    def _current_token(self) -> Token:
+        if self._pos < len(self._tokens):
+            return self._tokens[self._pos]
+        return Token(TokenType.EOF, "")
+
+    def _advance(self) -> Token:
+        token = self._current_token()
+        self._pos += 1
+        return token
+
+    def _expect(self, token_type: str) -> Token:
+        token = self._current_token()
+        if token.type != token_type:
+            raise ValueError(f"Expected {token_type}, got {token.type} at position {self._pos}")
+        return self._advance()
+
+    def parse(self) -> KeywordExpressionNode:
+        """Parse the expression and return the AST root."""
+        # Handle empty or simple expressions
+        if not self._expression.strip():
+            raise ValueError("Empty expression")
+
+        lexer = KeywordExpressionLexer(self._expression)
+        self._tokens = lexer.tokenize()
+        self._pos = 0
+
+        # Check if it's a simple comma/space-separated list (legacy format)
+        has_operators = any(
+            t.type in (TokenType.AND, TokenType.OR, TokenType.LPAREN)
+            for t in self._tokens
+        )
+
+        if not has_operators:
+            # Legacy mode: treat as simple keyword list (implicit AND)
+            keywords = [t.value for t in self._tokens if t.type == TokenType.KEYWORD]
+            if not keywords:
+                raise ValueError("No keywords found")
+            if len(keywords) == 1:
+                return KeywordNode(keywords[0])
+            # Chain all keywords with AND
+            result: KeywordExpressionNode = KeywordNode(keywords[0])
+            for kw in keywords[1:]:
+                result = AndNode(result, KeywordNode(kw))
+            return result
+
+        return self._parse_expression()
+
+    def _parse_expression(self) -> KeywordExpressionNode:
+        """Parse: expression -> term ((OR) term)*"""
+        left = self._parse_term()
+
+        while self._current_token().type == TokenType.OR:
+            self._advance()  # consume OR
+            right = self._parse_term()
+            left = OrNode(left, right)
+
+        return left
+
+    def _parse_term(self) -> KeywordExpressionNode:
+        """Parse: term -> factor ((AND) factor)*"""
+        left = self._parse_factor()
+
+        while self._current_token().type == TokenType.AND:
+            self._advance()  # consume AND
+            right = self._parse_factor()
+            left = AndNode(left, right)
+
+        return left
+
+    def _parse_factor(self) -> KeywordExpressionNode:
+        """Parse: factor -> KEYWORD | LPAREN expression RPAREN"""
+        token = self._current_token()
+
+        if token.type == TokenType.KEYWORD:
+            self._advance()
+            return KeywordNode(token.value)
+
+        if token.type == TokenType.LPAREN:
+            self._advance()  # consume (
+            node = self._parse_expression()
+            self._expect(TokenType.RPAREN)  # consume )
+            return node
+
+        raise ValueError(f"Unexpected token: {token.type} '{token.value}'")
+
+
+class KeywordFilter:
+    """
+    Intelligent keyword filter supporting boolean expressions.
+
+    Usage:
+        filter = KeywordFilter("ddr5 i ram i (cl30 lub cl40)")
+        if filter.matches("DDR5 RAM 32GB CL30"):
+            print("Match!")
+    """
+
+    def __init__(self, expression: str) -> None:
+        self._expression: str = expression
+        self._root: Optional[KeywordExpressionNode] = None
+        self._parse_error: Optional[str] = None
+        self._parse()
+
+    def _parse(self) -> None:
+        """Parse the expression."""
+        try:
+            parser = KeywordExpressionParser(self._expression)
+            self._root = parser.parse()
+        except ValueError as e:
+            self._parse_error = str(e)
+            self._root = None
+
+    def is_valid(self) -> bool:
+        """Check if the expression was parsed successfully."""
+        return self._root is not None
+
+    def get_error(self) -> Optional[str]:
+        """Get the parse error message, if any."""
+        return self._parse_error
+
+    def matches(self, text: str) -> bool:
+        """Check if the text matches the expression."""
+        if self._root is None:
+            return False
+        return self._root.evaluate(text)
+
+    def get_all_keywords(self) -> list[str]:
+        """Get all keywords in the expression."""
+        if self._root is None:
+            return []
+        return self._root.get_keywords()
+
+    def get_matched_keywords(self, text: str) -> list[str]:
+        """Get the keywords that matched in the text."""
+        if self._root is None:
+            return []
+        return self._root.get_matched_keywords(text)
+
+    def get_search_terms(self) -> list[str]:
+        """
+        Get keywords suitable for search queries.
+        Returns unique keywords without duplicates.
+        """
+        if self._root is None:
+            return []
+        return list(dict.fromkeys(self._root.get_keywords()))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # BASE SCRAPER
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -74,35 +603,69 @@ class BaseScraper(ABC):
 
     PORTAL_NAME: str = ""
     REQUEST_TIMEOUT: int = 15
+    MAX_RETRIES: int = 3
 
     def __init__(self) -> None:
-        self._ua: UserAgent = UserAgent()
+        self._human: HumanSimulator = get_human_simulator()
+        self._session: requests.Session = requests.Session()
+        # Initialize session with realistic browser behavior
+        self._session.headers.update(self._human.get_headers())
 
-    def _get_headers(self) -> dict[str, str]:
-        return {
-            "User-Agent": self._ua.random,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-        }
+    def _get_headers(self, referer: Optional[str] = None) -> dict[str, str]:
+        """Get realistic browser headers using HumanSimulator."""
+        return self._human.get_headers(referer=referer)
 
-    def _fetch(self, url: str) -> Optional[BeautifulSoup]:
-        """Fetch a URL and return parsed soup, or None on error."""
-        try:
-            resp: requests.Response = requests.get(
-                url,
-                headers=self._get_headers(),
-                timeout=self.REQUEST_TIMEOUT,
-            )
-            resp.raise_for_status()
-            return BeautifulSoup(resp.text, "html.parser")
-        except requests.RequestException as exc:
-            print(f"[{self.PORTAL_NAME}] Request error: {exc}")
-            return None
+    def _fetch(self, url: str, referer: Optional[str] = None) -> Optional[BeautifulSoup]:
+        """Fetch a URL with human-like behavior and return parsed soup."""
+        # Throttle requests to avoid detection
+        self._human.request_throttle()
+
+        # Check if we should take a break
+        if self._human.should_take_break():
+            self._human.take_break()
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                # Update headers for each request (rotation)
+                headers = self._get_headers(referer=referer)
+                self._session.headers.update(headers)
+
+                resp: requests.Response = self._session.get(
+                    url,
+                    timeout=self.REQUEST_TIMEOUT,
+                )
+
+                # Check for anti-bot responses
+                if resp.status_code == 429:  # Too Many Requests
+                    print(f"[{self.PORTAL_NAME}] Rate limited, waiting...")
+                    self._human.take_break()
+                    continue
+
+                if resp.status_code == 403:
+                    print(f"[{self.PORTAL_NAME}] Access forbidden, rotating identity...")
+                    self._human.rotate_identity()
+                    self._human.human_delay(2.0, 5.0)
+                    continue
+
+                resp.raise_for_status()
+
+                # Simulate reading the page
+                self._human.reading_delay()
+
+                return BeautifulSoup(resp.text, "html.parser")
+
+            except requests.RequestException as exc:
+                print(f"[{self.PORTAL_NAME}] Request error (attempt {attempt + 1}): {exc}")
+                if attempt < self.MAX_RETRIES - 1:
+                    self._human.human_delay(2.0, 5.0)
+                    self._human.rotate_identity()
+                continue
+
+        return None
 
     def _random_delay(self) -> None:
-        time.sleep(random.uniform(1.0, 3.0))
+        """Human-like delay between actions."""
+        self._human.human_delay()
 
     @abstractmethod
     def search(
@@ -122,50 +685,186 @@ class BaseScraper(ABC):
 
 class AllegroScraper(BaseScraper):
     PORTAL_NAME: str = "Allegro"
+    ALLEGRO_BASE: str = "https://allegro.pl"
+    MAX_RETRIES: int = 5  # More retries for Allegro
+
+    # Mobile user agents (often less blocked)
+    MOBILE_USER_AGENTS: list[str] = [
+        "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    ]
 
     def __init__(self) -> None:
         super().__init__()
-        self._session: requests.Session = requests.Session()
+        self._cookies_acquired: bool = False
+        self._use_mobile: bool = False
+        self._attempt_count: int = 0
+        self._last_successful_ua: Optional[str] = None
 
-    def _get_headers(self) -> dict[str, str]:
-        """Allegro needs realistic browser headers to avoid Cloudflare."""
-        return {
-            "User-Agent": self._ua.random,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1",
-            "Connection": "keep-alive",
-        }
+    def _get_allegro_headers(self, referer: Optional[str] = None, mobile: bool = False) -> dict[str, str]:
+        """Get headers optimized for Allegro with anti-detection measures."""
+        if mobile:
+            ua = random.choice(self.MOBILE_USER_AGENTS)
+            headers = {
+                "User-Agent": ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin" if referer else "none",
+                "Sec-Fetch-User": "?1",
+                "Cache-Control": "max-age=0",
+            }
+        else:
+            headers = self._human.get_headers(referer=referer)
+            # Add extra headers that real browsers send
+            headers["Pragma"] = "no-cache"
+            headers["Cache-Control"] = "no-cache"
+
+        if referer:
+            headers["Referer"] = referer
+
+        return headers
+
+    def _create_fresh_session(self) -> None:
+        """Create a completely fresh session with new identity."""
+        self._session = requests.Session()
+        self._cookies_acquired = False
+        self._human.rotate_identity()
+
+    def _warm_up_session(self) -> bool:
+        """Visit Allegro with realistic browsing pattern."""
+        if self._cookies_acquired:
+            return True
+
+        print(f"[{self.PORTAL_NAME}] Warming up session (mobile={self._use_mobile})...")
+
+        try:
+            # Step 1: Visit main page
+            headers = self._get_allegro_headers(mobile=self._use_mobile)
+            self._session.headers.update(headers)
+
+            self._human.request_throttle()
+            resp = self._session.get(
+                self.ALLEGRO_BASE,
+                timeout=self.REQUEST_TIMEOUT,
+                allow_redirects=True
+            )
+
+            # Check for Cloudflare challenge
+            if resp.status_code == 403 or "cf-" in resp.text.lower() or "challenge" in resp.text.lower():
+                print(f"[{self.PORTAL_NAME}] Cloudflare challenge detected during warm-up")
+                return False
+
+            if resp.status_code == 200:
+                self._cookies_acquired = True
+                self._last_successful_ua = headers.get("User-Agent")
+                self._human.reading_delay()
+                print(f"[{self.PORTAL_NAME}] Session warmed up successfully")
+
+                # Step 2: Sometimes visit a category page to look more natural
+                if random.random() < 0.3:
+                    self._human.human_delay(1.0, 2.5)
+                    category_url = f"{self.ALLEGRO_BASE}/kategoria/elektronika"
+                    self._session.get(category_url, timeout=self.REQUEST_TIMEOUT)
+                    self._human.reading_delay()
+
+                return True
+
+        except requests.RequestException as exc:
+            print(f"[{self.PORTAL_NAME}] Warm-up failed: {exc}")
+
+        return False
 
     def _fetch_with_session(self, url: str) -> Optional[BeautifulSoup]:
-        """Fetch using session for cookie persistence."""
-        self._session.headers.update(self._get_headers())
-        try:
-            # Get cookies from main page first
-            self._session.get(
-                "https://allegro.pl", timeout=self.REQUEST_TIMEOUT
-            )
-            self._random_delay()
-            self._session.headers["Referer"] = "https://allegro.pl/"
-            resp: requests.Response = self._session.get(
-                url, timeout=self.REQUEST_TIMEOUT
-            )
-            # Detect Cloudflare CAPTCHA / JS challenge
-            if resp.status_code == 403 or "captcha" in resp.text.lower():
-                raise requests.RequestException(
-                    "Allegro anti-bot protection (CAPTCHA / Cloudflare). "
-                    "Try again later or use a browser."
+        """Fetch using session with advanced anti-bot evasion for Allegro."""
+        strategies = [
+            {"mobile": False, "fresh_session": False},
+            {"mobile": False, "fresh_session": True},
+            {"mobile": True, "fresh_session": True},
+            {"mobile": True, "fresh_session": False},
+            {"mobile": False, "fresh_session": True},  # Last resort: try desktop again
+        ]
+
+        for attempt, strategy in enumerate(strategies[:self.MAX_RETRIES]):
+            if attempt > 0:
+                # Exponential backoff with jitter
+                wait_time = min(30, (2 ** attempt) + random.uniform(0, 2))
+                print(f"[{self.PORTAL_NAME}] Waiting {wait_time:.1f}s before retry...")
+                time.sleep(wait_time)
+
+            self._use_mobile = strategy["mobile"]
+
+            if strategy["fresh_session"]:
+                self._create_fresh_session()
+
+            # Try to warm up
+            if not self._warm_up_session():
+                print(f"[{self.PORTAL_NAME}] Warm-up failed, trying next strategy...")
+                continue
+
+            self._human.human_delay(1.5, 3.0)
+
+            try:
+                # Use the same UA that worked for warm-up
+                headers = self._get_allegro_headers(
+                    referer=f"{self.ALLEGRO_BASE}/",
+                    mobile=self._use_mobile
                 )
-            resp.raise_for_status()
-            return BeautifulSoup(resp.text, "html.parser")
-        except requests.RequestException as exc:
-            print(f"[{self.PORTAL_NAME}] {exc}")
-            raise
+                if self._last_successful_ua:
+                    headers["User-Agent"] = self._last_successful_ua
+
+                self._session.headers.update(headers)
+                self._human.request_throttle()
+
+                resp: requests.Response = self._session.get(
+                    url,
+                    timeout=self.REQUEST_TIMEOUT,
+                    allow_redirects=True
+                )
+
+                # Check for various anti-bot responses
+                if resp.status_code == 429:
+                    print(f"[{self.PORTAL_NAME}] Rate limited (429)")
+                    self._cookies_acquired = False
+                    continue
+
+                if resp.status_code == 403:
+                    print(f"[{self.PORTAL_NAME}] Forbidden (403)")
+                    self._cookies_acquired = False
+                    continue
+
+                # Check for Cloudflare/CAPTCHA in response body
+                if any(marker in resp.text.lower() for marker in ["captcha", "cf-browser-verification", "challenge-running"]):
+                    print(f"[{self.PORTAL_NAME}] CAPTCHA/Challenge detected in response")
+                    self._cookies_acquired = False
+                    continue
+
+                resp.raise_for_status()
+
+                # Verify we got actual listing content
+                soup = BeautifulSoup(resp.text, "html.parser")
+                if soup.select("article") or soup.select("[data-box-name='items']") or "listing" in resp.url:
+                    self._human.reading_delay()
+                    return soup
+                else:
+                    print(f"[{self.PORTAL_NAME}] Response doesn't contain listings, might be blocked")
+                    self._cookies_acquired = False
+                    continue
+
+            except requests.RequestException as exc:
+                print(f"[{self.PORTAL_NAME}] Request error (attempt {attempt + 1}): {exc}")
+                self._cookies_acquired = False
+
+        # All strategies failed
+        print(f"[{self.PORTAL_NAME}] All strategies exhausted")
+        raise requests.RequestException(
+            "Allegro anti-bot active. Spróbuj później lub użyj VPN."
+        )
 
     def search(
         self,
@@ -254,24 +953,32 @@ class AllegroScraper(BaseScraper):
 
 class OLXScraper(BaseScraper):
     PORTAL_NAME: str = "OLX"
-    MAX_RETRIES: int = 2
+    OLX_BASE: str = "https://www.olx.pl"
 
     def __init__(self) -> None:
         super().__init__()
-        self._session: requests.Session = requests.Session()
+        self._cookies_acquired: bool = False
 
-    def _fetch_with_session(self, url: str) -> Optional[BeautifulSoup]:
-        """Fetch using session for cookie persistence (prevents consent-page issue)."""
-        self._session.headers.update(self._get_headers())
+    def _warm_up_session(self) -> None:
+        """Visit OLX homepage to establish cookies and appear more human."""
+        if self._cookies_acquired:
+            return
+
+        print(f"[{self.PORTAL_NAME}] Warming up session...")
+        self._human.request_throttle()
+
         try:
-            resp: requests.Response = self._session.get(
-                url, timeout=self.REQUEST_TIMEOUT
-            )
-            resp.raise_for_status()
-            return BeautifulSoup(resp.text, "html.parser")
+            headers = self._human.get_headers()
+            self._session.headers.update(headers)
+            resp = self._session.get(self.OLX_BASE, timeout=self.REQUEST_TIMEOUT)
+
+            if resp.status_code == 200:
+                self._cookies_acquired = True
+                self._human.reading_delay()
+                print(f"[{self.PORTAL_NAME}] Session warmed up successfully")
+
         except requests.RequestException as exc:
-            print(f"[{self.PORTAL_NAME}] Request error: {exc}")
-            return None
+            print(f"[{self.PORTAL_NAME}] Warm-up failed: {exc}")
 
     def search(
         self,
@@ -282,7 +989,7 @@ class OLXScraper(BaseScraper):
     ) -> list[ScrapeResult]:
         results: list[ScrapeResult] = []
         query: str = " ".join(kw.strip() for kw in keywords)
-        url: str = f"https://www.olx.pl/oferty/q-{query}/"
+        url: str = f"{self.OLX_BASE}/oferty/q-{query}/"
 
         params: list[str] = []
         if price_min is not None:
@@ -295,15 +1002,8 @@ class OLXScraper(BaseScraper):
         if cancel_event.is_set():
             return results
 
-        # Warm up session — visit OLX homepage to get cookies
-        self._session.headers.update(self._get_headers())
-        try:
-            self._session.get(
-                "https://www.olx.pl", timeout=self.REQUEST_TIMEOUT
-            )
-        except requests.RequestException:
-            pass  # Non-critical, continue with the search
-
+        # Warm up session first
+        self._warm_up_session()
         self._random_delay()
 
         # Fetch with retry — OLX sometimes serves empty pages on first hit
@@ -313,9 +1013,12 @@ class OLXScraper(BaseScraper):
             if cancel_event.is_set():
                 return results
 
-            soup = self._fetch_with_session(url)
+            # Use base class _fetch with human simulation
+            soup = self._fetch(url, referer=f"{self.OLX_BASE}/")
             if soup is None:
-                break
+                self._human.rotate_identity()
+                self._cookies_acquired = False
+                continue
 
             cards = soup.select("div[data-cy='l-card']")
             if not cards:
@@ -327,6 +1030,7 @@ class OLXScraper(BaseScraper):
             # No cards found — log and retry after delay
             print(f"[{self.PORTAL_NAME}] Attempt {attempt + 1}: 0 cards, retrying...")
             if attempt < self.MAX_RETRIES:
+                self._human.rotate_identity()
                 self._random_delay()
 
         for card in cards:
@@ -379,11 +1083,32 @@ class OLXScraper(BaseScraper):
 
 class VintedScraper(BaseScraper):
     PORTAL_NAME: str = "Vinted"
+    VINTED_BASE: str = "https://www.vinted.pl"
 
-    def _get_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = super()._get_headers()
-        headers["Referer"] = "https://www.vinted.pl/"
-        return headers
+    def __init__(self) -> None:
+        super().__init__()
+        self._cookies_acquired: bool = False
+
+    def _warm_up_session(self) -> None:
+        """Visit Vinted homepage to establish cookies and appear more human."""
+        if self._cookies_acquired:
+            return
+
+        print(f"[{self.PORTAL_NAME}] Warming up session...")
+        self._human.request_throttle()
+
+        try:
+            headers = self._human.get_headers()
+            self._session.headers.update(headers)
+            resp = self._session.get(self.VINTED_BASE, timeout=self.REQUEST_TIMEOUT)
+
+            if resp.status_code == 200:
+                self._cookies_acquired = True
+                self._human.reading_delay()
+                print(f"[{self.PORTAL_NAME}] Session warmed up successfully")
+
+        except requests.RequestException as exc:
+            print(f"[{self.PORTAL_NAME}] Warm-up failed: {exc}")
 
     def search(
         self,
@@ -394,7 +1119,7 @@ class VintedScraper(BaseScraper):
     ) -> list[ScrapeResult]:
         results: list[ScrapeResult] = []
         query: str = "+".join(kw.strip() for kw in keywords)
-        url: str = f"https://www.vinted.pl/catalog?search_text={query}"
+        url: str = f"{self.VINTED_BASE}/catalog?search_text={query}"
 
         if price_min is not None:
             url += f"&price_from={price_min:.0f}"
@@ -404,7 +1129,11 @@ class VintedScraper(BaseScraper):
         if cancel_event.is_set():
             return results
 
-        soup: Optional[BeautifulSoup] = self._fetch(url)
+        # Warm up session first
+        self._warm_up_session()
+        self._random_delay()
+
+        soup: Optional[BeautifulSoup] = self._fetch(url, referer=f"{self.VINTED_BASE}/")
         if soup is None:
             return results
 
@@ -481,7 +1210,7 @@ SCRAPERS: dict[str, type[BaseScraper]] = {
 
 
 class ScraperManager:
-    """Orchestrates scraping across platforms with keyword filtering."""
+    """Orchestrates scraping across platforms with intelligent keyword filtering."""
 
     def __init__(
         self,
@@ -500,28 +1229,17 @@ class ScraperManager:
         # Per-platform tracking for detailed status
         self._platform_results: dict[str, int] = {}
         self._platform_errors: dict[str, str] = {}
-
-    def _match_keywords(self, title: str) -> list[str]:
-        """Return which keywords match in the title, respecting AND/OR logic."""
-        title_lower: str = title.lower()
-        matched: list[str] = [
-            kw for kw in self._config.keywords
-            if kw.lower() in title_lower
-        ]
-        return matched
+        # Initialize the keyword filter with boolean expression support
+        self._keyword_filter: KeywordFilter = KeywordFilter(config.keyword_expression)
 
     def _passes_filter(self, result: ScrapeResult) -> bool:
-        """Check if result passes keyword logic and price range."""
-        # Keyword filtering
-        matched: list[str] = self._match_keywords(result.title)
-        result.matched_keywords = matched
+        """Check if result passes keyword expression and price range."""
+        # Keyword filtering using boolean expression parser
+        if not self._keyword_filter.matches(result.title):
+            return False
 
-        if self._config.logic == "AND":
-            if len(matched) != len(self._config.keywords):
-                return False
-        else:  # OR
-            if len(matched) == 0:
-                return False
+        # Store matched keywords for display
+        result.matched_keywords = self._keyword_filter.get_matched_keywords(result.title)
 
         # Price filtering
         if result.price is not None:
@@ -531,6 +1249,10 @@ class ScraperManager:
                 return False
 
         return True
+
+    def get_search_keywords(self) -> list[str]:
+        """Get keywords to use for search queries (sent to platforms)."""
+        return self._keyword_filter.get_search_terms()
 
     def _emit_status(self, msg: str) -> None:
         if self._on_status:
@@ -558,6 +1280,9 @@ class ScraperManager:
 
     def run(self) -> None:
         """Run all selected scrapers. Meant to be called in a background thread."""
+        # Get search keywords from the expression (for platform queries)
+        search_keywords = self.get_search_keywords()
+
         for platform in self._config.platforms:
             if self._cancel.is_set():
                 break
@@ -571,7 +1296,7 @@ class ScraperManager:
             try:
                 scraper: BaseScraper = scraper_cls()
                 raw_results: list[ScrapeResult] = scraper.search(
-                    keywords=self._config.keywords,
+                    keywords=search_keywords,
                     price_min=self._config.price_min,
                     price_max=self._config.price_max,
                     cancel_event=self._cancel,
@@ -767,9 +1492,6 @@ class MarketMapApp(ctk.CTk):
         self._chk_olx_var: ctk.BooleanVar = ctk.BooleanVar(value=True)
         self._chk_vinted_var: ctk.BooleanVar = ctk.BooleanVar(value=True)
 
-        # Logic mode
-        self._logic_var: ctk.StringVar = ctk.StringVar(value="OR")
-
         # Build UI
         self._build_layout()
 
@@ -883,10 +1605,10 @@ class MarketMapApp(ctk.CTk):
         div2.grid(row=row, column=0, padx=20, pady=16, sticky="ew")
         row += 1
 
-        # ── Section: Keywords
+        # ── Section: Keywords (with intelligent filtering)
         sec_kw = ctk.CTkLabel(
             sidebar,
-            text="KEYWORDS",
+            text="FILTER EXPRESSION",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color=COLORS["text_muted"],
             anchor="w",
@@ -896,7 +1618,7 @@ class MarketMapApp(ctk.CTk):
 
         self._keywords_entry = ctk.CTkEntry(
             sidebar,
-            placeholder_text="e.g. laptop, gaming, RTX",
+            placeholder_text="np. ddr5 i (cl30 lub cl40)",
             font=ctk.CTkFont(size=13),
             fg_color=COLORS["card_bg"],
             border_color=COLORS["border"],
@@ -907,31 +1629,15 @@ class MarketMapApp(ctk.CTk):
         self._keywords_entry.grid(row=row, column=0, padx=20, sticky="ew")
         row += 1
 
-        # ── Logic switch
-        logic_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
-        logic_frame.grid(row=row, column=0, padx=20, pady=(10, 0), sticky="ew")
-
-        logic_label = ctk.CTkLabel(
-            logic_frame,
-            text="Logic:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"],
+        # ── Syntax help label
+        syntax_help = ctk.CTkLabel(
+            sidebar,
+            text="ℹ 'i' lub '+' (AND), 'lub' lub '||' (OR)",
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_muted"],
+            anchor="w",
         )
-        logic_label.pack(side="left", padx=(4, 8))
-
-        self._logic_switch = ctk.CTkSegmentedButton(
-            logic_frame,
-            values=["AND", "OR"],
-            variable=self._logic_var,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=COLORS["card_bg"],
-            selected_color=COLORS["accent"],
-            selected_hover_color=COLORS["accent_hover"],
-            unselected_color=COLORS["card_bg"],
-            unselected_hover_color=COLORS["card_hover"],
-            corner_radius=8,
-        )
-        self._logic_switch.pack(side="left", fill="x", expand=True)
+        syntax_help.grid(row=row, column=0, padx=24, pady=(4, 0), sticky="w")
         row += 1
 
         # ── Divider
@@ -1008,7 +1714,23 @@ class MarketMapApp(ctk.CTk):
             text_color=COLORS["text_muted"],
             anchor="w",
         )
-        self._status_label.grid(row=row, column=0, padx=24, pady=(10, 20), sticky="w")
+        self._status_label.grid(row=row, column=0, padx=24, pady=(10, 10), sticky="w")
+        row += 1
+
+        # ── Close button
+        close_btn = ctk.CTkButton(
+            sidebar,
+            text="✕   Zamknij",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            fg_color=COLORS["card_bg"],
+            hover_color=COLORS["card_hover"],
+            border_width=1,
+            border_color=COLORS["border"],
+            corner_radius=10,
+            height=40,
+            command=self.destroy,
+        )
+        close_btn.grid(row=row, column=0, padx=20, pady=(0, 20), sticky="ew")
 
     def _build_main_area(self) -> None:
         main_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_dark"], corner_radius=0)
@@ -1086,9 +1808,19 @@ class MarketMapApp(ctk.CTk):
 
     def _start_scan(self) -> None:
         # Validate inputs
-        keywords_raw: str = self._keywords_entry.get().strip()
-        if not keywords_raw:
-            self._status_label.configure(text="⚠ Enter at least one keyword!", text_color=COLORS["warning"])
+        expression: str = self._keywords_entry.get().strip()
+        if not expression:
+            self._status_label.configure(text="⚠ Wpisz wyrażenie filtrujące!", text_color=COLORS["warning"])
+            return
+
+        # Validate the expression syntax
+        test_filter = KeywordFilter(expression)
+        if not test_filter.is_valid():
+            error_msg = test_filter.get_error() or "Błąd składni"
+            self._status_label.configure(
+                text=f"⚠ {error_msg[:40]}...",
+                text_color=COLORS["warning"]
+            )
             return
 
         platforms: list[str] = []
@@ -1100,11 +1832,8 @@ class MarketMapApp(ctk.CTk):
             platforms.append("Vinted")
 
         if not platforms:
-            self._status_label.configure(text="⚠ Select at least one platform!", text_color=COLORS["warning"])
+            self._status_label.configure(text="⚠ Wybierz co najmniej jedną platformę!", text_color=COLORS["warning"])
             return
-
-        # Parse keywords
-        keywords: list[str] = [kw.strip() for kw in keywords_raw.split(",") if kw.strip()]
 
         # Parse prices
         price_min: Optional[float] = None
@@ -1114,21 +1843,20 @@ class MarketMapApp(ctk.CTk):
             if min_text:
                 price_min = float(min_text)
         except ValueError:
-            self._status_label.configure(text="⚠ Invalid min price!", text_color=COLORS["warning"])
+            self._status_label.configure(text="⚠ Nieprawidłowa cena minimalna!", text_color=COLORS["warning"])
             return
         try:
             max_text: str = self._price_max_entry.get().strip()
             if max_text:
                 price_max = float(max_text)
         except ValueError:
-            self._status_label.configure(text="⚠ Invalid max price!", text_color=COLORS["warning"])
+            self._status_label.configure(text="⚠ Nieprawidłowa cena maksymalna!", text_color=COLORS["warning"])
             return
 
-        # Build config
+        # Build config with keyword expression
         config = ScrapeConfig(
             platforms=platforms,
-            keywords=keywords,
-            logic=self._logic_var.get(),
+            keyword_expression=expression,
             price_min=price_min,
             price_max=price_max,
         )
